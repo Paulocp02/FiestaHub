@@ -107,12 +107,15 @@ function PolaroidCard({ photo, index, onClick }) {
 }
 
 export default function PhotoGallery() {
-  const [photos, setPhotos]         = useState([])
-  const [loading, setLoading]       = useState(true)
-  const [selected, setSelected]     = useState(null)
+  const [photos, setPhotos]           = useState([])
+  const [loading, setLoading]         = useState(true)
+  const [selected, setSelected]       = useState(null)
   const [isExporting, setIsExporting] = useState(false)
   const [exportError, setExportError] = useState(null)
   const [exportPhotos, setExportPhotos] = useState([])
+
+  // Ref points to the wrapping div INSIDE the off-screen container —
+  // the export card fills 100% of that wrapper, so the capture covers exactly the card.
   const exportCardRef = useRef(null)
 
   useEffect(() => {
@@ -155,9 +158,8 @@ export default function PhotoGallery() {
     setExportError(null)
 
     try {
+      // Pre-fetch images as data URLs — eliminates CORS issues inside html-to-image
       const toExport = photos.slice(0, 6)
-
-      // Pre-fetch images as data URLs (avoids CORS issues in html-to-image)
       const withDataUrls = await Promise.all(
         toExport.map(async (p) => ({
           ...p,
@@ -167,12 +169,14 @@ export default function PhotoGallery() {
       const valid = withDataUrls.filter((p) => p.dataUrl)
       if (!valid.length) throw new Error('No se pudieron cargar las imágenes.')
 
+      // Push data into the hidden card and give React time to commit + paint
       setExportPhotos(valid)
+      await new Promise((r) => setTimeout(r, 400))
 
-      // Wait two animation frames: React commit + browser paint
-      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
-
-      await downloadNodeAsImage(exportCardRef.current, 'photobooth-martes-con-alegria.png')
+      await downloadNodeAsImage(
+        exportCardRef.current,
+        'photobooth-martes-con-alegria.png',
+      )
     } catch (err) {
       console.error('[PhotoGallery Export]', err)
       setExportError('No fue posible generar el collage. Inténtalo de nuevo.')
@@ -262,8 +266,30 @@ export default function PhotoGallery() {
         {selected && <Lightbox photo={selected} onClose={() => setSelected(null)} />}
       </AnimatePresence>
 
-      {/* Hidden export card — always mounted, off-screen */}
-      <PhotoboothExportCard ref={exportCardRef} photos={exportPhotos} />
+      {/*
+        Off-screen export container.
+        KEY FIX: left: -9999px but top: 0 (NOT -9999px).
+        Browsers render fixed elements that are off-screen horizontally but
+        still within the vertical viewport range. Moving BOTH axes off-screen
+        causes the element to be skipped by the rendering engine → blank PNG.
+        The ref is on the INNER div so html-to-image captures the card directly.
+      */}
+      <div
+        aria-hidden="true"
+        style={{
+          position: 'fixed',
+          left: '-9999px',
+          top: 0,
+          width: '1080px',
+          pointerEvents: 'none',
+          opacity: 1,
+          zIndex: -1,
+        }}
+      >
+        <div ref={exportCardRef}>
+          <PhotoboothExportCard photos={exportPhotos} />
+        </div>
+      </div>
     </section>
   )
 }

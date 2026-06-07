@@ -56,11 +56,13 @@ function StickerCard({ msg, index }) {
 }
 
 export default function MessageWall() {
-  const [messages, setMessages]     = useState([])
-  const [loading, setLoading]       = useState(true)
-  const [dbError, setDbError]       = useState(false)
+  const [messages, setMessages]       = useState([])
+  const [loading, setLoading]         = useState(true)
+  const [dbError, setDbError]         = useState(false)
   const [isExporting, setIsExporting] = useState(false)
   const [exportError, setExportError] = useState(null)
+
+  // Ref on the inner wrapper div — the export card fills its full width.
   const exportCardRef = useRef(null)
 
   useEffect(() => {
@@ -106,9 +108,12 @@ export default function MessageWall() {
     setExportError(null)
 
     try {
-      // Export card is always mounted with current messages — just wait for paint
-      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
-      await downloadNodeAsImage(exportCardRef.current, 'muro-mensajes-martes-con-alegria.png')
+      // Export card is always mounted with current messages — just let the browser settle
+      await new Promise((r) => setTimeout(r, 300))
+      await downloadNodeAsImage(
+        exportCardRef.current,
+        'muro-mensajes-martes-con-alegria.png',
+      )
     } catch (err) {
       console.error('[MessageWall Export]', err)
       setExportError('No fue posible generar el mural. Inténtalo de nuevo.')
@@ -188,8 +193,28 @@ export default function MessageWall() {
         </motion.div>
       </div>
 
-      {/* Hidden export card — always mounted with current messages, off-screen */}
-      <MessageWallExportCard ref={exportCardRef} messages={messages} />
+      {/*
+        Off-screen export container.
+        Same fix as PhotoGallery: left: -9999px but top: 0.
+        The export card always renders with the current messages.
+        The ref is on the inner wrapper div.
+      */}
+      <div
+        aria-hidden="true"
+        style={{
+          position: 'fixed',
+          left: '-9999px',
+          top: 0,
+          width: '1080px',
+          pointerEvents: 'none',
+          opacity: 1,
+          zIndex: -1,
+        }}
+      >
+        <div ref={exportCardRef}>
+          <MessageWallExportCard messages={messages} />
+        </div>
+      </div>
     </section>
   )
 }
