@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { FiX, FiHeart } from 'react-icons/fi'
+import { FiX, FiHeart, FiDownload } from 'react-icons/fi'
 import { supabase } from '../lib/supabase'
+import PhotoboothExportCard from './export/PhotoboothExportCard'
+import { downloadNodeAsImage, fetchAsDataUrl } from '../utils/downloadNodeAsImage'
 
 function formatTimestamp(dateStr) {
   if (!dateStr) return ''
@@ -105,9 +107,13 @@ function PolaroidCard({ photo, index, onClick }) {
 }
 
 export default function PhotoGallery() {
-  const [photos, setPhotos]     = useState([])
-  const [loading, setLoading]   = useState(true)
-  const [selected, setSelected] = useState(null)
+  const [photos, setPhotos]         = useState([])
+  const [loading, setLoading]       = useState(true)
+  const [selected, setSelected]     = useState(null)
+  const [isExporting, setIsExporting] = useState(false)
+  const [exportError, setExportError] = useState(null)
+  const [exportPhotos, setExportPhotos] = useState([])
+  const exportCardRef = useRef(null)
 
   useEffect(() => {
     let channel
@@ -143,6 +149,38 @@ export default function PhotoGallery() {
     return () => { if (channel) supabase.removeChannel(channel) }
   }, [])
 
+  const handleDownloadCollage = async () => {
+    if (isExporting || !photos.length) return
+    setIsExporting(true)
+    setExportError(null)
+
+    try {
+      const toExport = photos.slice(0, 6)
+
+      // Pre-fetch images as data URLs (avoids CORS issues in html-to-image)
+      const withDataUrls = await Promise.all(
+        toExport.map(async (p) => ({
+          ...p,
+          dataUrl: await fetchAsDataUrl(p.image_url),
+        }))
+      )
+      const valid = withDataUrls.filter((p) => p.dataUrl)
+      if (!valid.length) throw new Error('No se pudieron cargar las imágenes.')
+
+      setExportPhotos(valid)
+
+      // Wait two animation frames: React commit + browser paint
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
+
+      await downloadNodeAsImage(exportCardRef.current, 'photobooth-martes-con-alegria.png')
+    } catch (err) {
+      console.error('[PhotoGallery Export]', err)
+      setExportError('No fue posible generar el collage. Inténtalo de nuevo.')
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="py-6 text-center text-gray-400 text-sm bg-gray-50">
@@ -160,7 +198,7 @@ export default function PhotoGallery() {
           initial={{ opacity: 0, y: 16 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
-          className="flex items-end justify-between mb-8 gap-4"
+          className="flex items-end justify-between mb-6 gap-4"
         >
           <div>
             <span className="text-[11px] font-jakarta font-bold uppercase tracking-[0.15em] text-secondary">
@@ -179,6 +217,35 @@ export default function PhotoGallery() {
           </div>
         </motion.div>
 
+        {/* Download button */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          className="mb-6"
+        >
+          <button
+            onClick={handleDownloadCollage}
+            disabled={isExporting || !photos.length}
+            className="inline-flex items-center gap-2.5 bg-secondary text-on-secondary font-jakarta font-bold text-sm py-3 px-5 rounded-xl shadow-ambient hover:shadow-ambient-hover hover:opacity-90 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isExporting ? (
+              <>
+                <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin flex-shrink-0" />
+                Preparando collage...
+              </>
+            ) : (
+              <>
+                <FiDownload size={16} />
+                Descargar collage del photobooth
+              </>
+            )}
+          </button>
+          {exportError && (
+            <p className="text-red-400 text-xs mt-2">{exportError}</p>
+          )}
+        </motion.div>
+
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-5">
           {photos.map((photo, i) => (
             <PolaroidCard
@@ -194,6 +261,9 @@ export default function PhotoGallery() {
       <AnimatePresence>
         {selected && <Lightbox photo={selected} onClose={() => setSelected(null)} />}
       </AnimatePresence>
+
+      {/* Hidden export card — always mounted, off-screen */}
+      <PhotoboothExportCard ref={exportCardRef} photos={exportPhotos} />
     </section>
   )
 }

@@ -1,6 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
+import { FiDownload } from 'react-icons/fi'
 import { supabase } from '../lib/supabase'
+import MessageWallExportCard from './export/MessageWallExportCard'
+import { downloadNodeAsImage } from '../utils/downloadNodeAsImage'
 
 // Colores M3 exactos del diseño Stitch
 const STICKER_CONFIGS = [
@@ -53,9 +56,12 @@ function StickerCard({ msg, index }) {
 }
 
 export default function MessageWall() {
-  const [messages, setMessages] = useState([])
-  const [loading, setLoading]   = useState(true)
-  const [dbError, setDbError]   = useState(false)
+  const [messages, setMessages]     = useState([])
+  const [loading, setLoading]       = useState(true)
+  const [dbError, setDbError]       = useState(false)
+  const [isExporting, setIsExporting] = useState(false)
+  const [exportError, setExportError] = useState(null)
+  const exportCardRef = useRef(null)
 
   useEffect(() => {
     let channel
@@ -93,6 +99,23 @@ export default function MessageWall() {
     initialize()
     return () => { if (channel) supabase.removeChannel(channel) }
   }, [])
+
+  const handleDownloadMural = async () => {
+    if (isExporting || !messages.length) return
+    setIsExporting(true)
+    setExportError(null)
+
+    try {
+      // Export card is always mounted with current messages — just wait for paint
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
+      await downloadNodeAsImage(exportCardRef.current, 'muro-mensajes-martes-con-alegria.png')
+    } catch (err) {
+      console.error('[MessageWall Export]', err)
+      setExportError('No fue posible generar el mural. Inténtalo de nuevo.')
+    } finally {
+      setIsExporting(false)
+    }
+  }
 
   if (loading) {
     return (
@@ -134,7 +157,39 @@ export default function MessageWall() {
             <StickerCard key={msg.id} msg={msg} index={i} />
           ))}
         </div>
+
+        {/* Download button */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          className="mt-8 flex flex-col items-center gap-2"
+        >
+          <button
+            onClick={handleDownloadMural}
+            disabled={isExporting || !messages.length}
+            className="inline-flex items-center gap-2.5 bg-tertiary text-on-tertiary font-jakarta font-bold text-sm py-3 px-5 rounded-xl shadow-ambient hover:shadow-ambient-hover hover:opacity-90 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isExporting ? (
+              <>
+                <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin flex-shrink-0" />
+                Preparando mural...
+              </>
+            ) : (
+              <>
+                <FiDownload size={16} />
+                Descargar mural de mensajes
+              </>
+            )}
+          </button>
+          {exportError && (
+            <p className="text-red-400 text-xs">{exportError}</p>
+          )}
+        </motion.div>
       </div>
+
+      {/* Hidden export card — always mounted with current messages, off-screen */}
+      <MessageWallExportCard ref={exportCardRef} messages={messages} />
     </section>
   )
 }
